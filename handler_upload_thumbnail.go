@@ -1,10 +1,11 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
 	"github.com/google/uuid"
@@ -69,8 +70,33 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 		mediaType: mediaType,
 	}
 
-	encodedData := base64.StdEncoding.EncodeToString(imageData)
-	thumbnailURL := fmt.Sprintf("data:%v;base64,%v", mediaType, encodedData)
+	// STORE DATA IN FILEPATH
+	var extensionType string
+	switch mediaType {
+	case "image/png":
+		extensionType = "png"
+	case "image/jpeg":
+		extensionType = "jpeg"
+	default:
+		respondWithError(w, http.StatusBadRequest, "Unsupported file type", nil)
+		return
+	}
+
+
+	filepath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%v.%v", videoID, extensionType))
+	thumbnailFile, err := os.Create(filepath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
+		return
+	}
+	defer thumbnailFile.Close()
+	thumbnailFile.Write(imageData)
+	
+	thumbnailURL := fmt.Sprintf("http://localhost:%v/%v", 
+		cfg.port,
+		filepath,
+	)
+	
 	video.ThumbnailURL = &thumbnailURL
 	err = cfg.db.UpdateVideo(video)
 	if err != nil {
