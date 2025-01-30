@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -78,12 +80,18 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	case "image/jpeg":
 		extensionType = "jpeg"
 	default:
-		respondWithError(w, http.StatusBadRequest, "Unsupported file type", nil)
+		respondWithError(w, http.StatusBadRequest, "Unsupported file type", err)
 		return
 	}
 
+	b := make([]byte, 32)
+	_, err = rand.Read(b)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, err.Error(), err)
+		return
+	}
 
-	filepath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%v.%v", videoID, extensionType))
+	filepath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%v.%v", base64.RawURLEncoding.EncodeToString(b), extensionType))
 	thumbnailFile, err := os.Create(filepath)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
