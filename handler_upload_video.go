@@ -92,7 +92,20 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		ratioPrefix = "other"
 	}
 
-	tempVideoFile.Seek(0, io.SeekStart)
+	processedVideoFilePath, err := processVideoForFastStart(tempVideoFile.Name())
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "couldn't process video", err)
+		return
+	}
+
+	processedVideoFile, err := os.Open(processedVideoFilePath)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Couldn't access processed video file", err)
+		return
+	}
+	defer processedVideoFile.Close()
+
+	processedVideoFile.Seek(0, io.SeekStart)
 
 	b := make([]byte, 32)
 	_, err = rand.Read(b)
@@ -103,7 +116,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	key := base64.RawURLEncoding.EncodeToString(b)
 	fileName := fmt.Sprintf("%v/%v.%v", ratioPrefix, key, "mp4")
 
-	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{Bucket: &cfg.s3Bucket, Key: &fileName, Body: tempVideoFile, ContentType: &mediatype})
+	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{Bucket: &cfg.s3Bucket, Key: &fileName, Body: processedVideoFile, ContentType: &mediatype})
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't upload video", err)
 		return
@@ -112,8 +125,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	newVideoURL := fmt.Sprintf("https://%v.s3.%v.amazonaws.com/%v", cfg.s3Bucket, cfg.s3Region, fileName)
 	dbVideo.VideoURL = &newVideoURL
 
-	cfg.db.UpdateVideo(dbVideo)
-	if err != nil {
+	if err = cfg.db.UpdateVideo(dbVideo); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't update Video", err)
 		return
 	}
@@ -156,4 +168,22 @@ func getVideoAspectRatio(filePath string) (string, error) {
 		return "9:16", nil
 	}
 	return "other", nil
+}
+
+func processVideoForFastStart(filePath string) (string, error) {
+	outputPath := filePath + ".processing"
+	cmd := exec.Command("ffmpeg", 
+	"-i", filePath, 
+	"-c", "copy", 
+	"-movflags", "faststart", 
+	"-f", "mp4",
+	outputPath)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
 }
