@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"os"
+	"os/exec"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/bootdotdev/learn-file-storage-s3-golang-starter/internal/auth"
@@ -66,10 +69,26 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	defer os.Remove(tempVideoFile.Name())
 	defer tempVideoFile.Close()
 
-	_, err = io.Copy(tempVideoFile, uploadedVideo)
-	if err != nil {
+	if _, err = io.Copy(tempVideoFile, uploadedVideo); err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Couldn't save video file", err)
 		return
+	}
+
+	aspectRatio, err := getVideoAspectRatio(tempVideoFile.Name())
+	if err != nil {
+		fmt.Printf("ERROR: %v\n", err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't get video aspect ratio", err)
+		return
+	}
+
+	var ratioPrefix string
+	switch aspectRatio{
+	case "16:9":
+		ratioPrefix = "landscape"
+	case "9:16":
+		ratioPrefix = "portrait"
+	default:
+		ratioPrefix = "other"
 	}
 
 	tempVideoFile.Seek(0, io.SeekStart)
@@ -81,7 +100,7 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	key := base64.RawURLEncoding.EncodeToString(b)
-	fileName := fmt.Sprintf("%v.%v", key, "mp4")
+	fileName := fmt.Sprintf("%v/%v.%v", ratioPrefix, key, "mp4")
 
 	_, err = cfg.s3Client.PutObject(r.Context(), &s3.PutObjectInput{Bucket: &cfg.s3Bucket, Key: &fileName, Body: tempVideoFile, ContentType: &mediatype})
 	if err != nil {
@@ -99,4 +118,39 @@ func (cfg *apiConfig) handlerUploadVideo(w http.ResponseWriter, r *http.Request)
 	}
 
 	respondWithJSON(w, http.StatusAccepted, dbVideo)
+}
+
+func getVideoAspectRatio(filePath string) (string, error) {
+	type VideoStream struct {
+		Width  int `json:"width"`
+		Height int `json:"height"`
+	}
+	
+	type FFProbeOutput struct {
+		Streams []VideoStream `json:"streams"`
+	}
+
+	cmd := exec.Command("ffprobe", "-v", "error", "-print_format", "json", "-show_streams", filePath)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+
+	var output FFProbeOutput
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		return "", err
+	}
+
+	width := output.Streams[0].Width
+	height := output.Streams[0].Height
+
+	switch width/height {
+	case 16/9:
+		return "16:9", nil
+	case 9/16:
+		return "9:16", nil
+	default:
+		return "other", nil
+	}
 }
