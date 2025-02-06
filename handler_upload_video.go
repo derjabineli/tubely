@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -142,15 +143,17 @@ func getVideoAspectRatio(filePath string) (string, error) {
 		return "", err
 	}
 
+	if len(output.Streams) == 0 {
+		return "", errors.New("no video streams found")
+	}
+
 	width := output.Streams[0].Width
 	height := output.Streams[0].Height
 
-	switch width/height {
-	case 16/9:
+	if width == 16*height/9 {
 		return "16:9", nil
-	case 9/16:
+	} else if height == 16*width/9 {
 		return "9:16", nil
-	default:
-		return "other", nil
 	}
+	return "other", nil
 }
