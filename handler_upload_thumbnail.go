@@ -41,7 +41,7 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 
 	file, fileHeader, err := r.FormFile("thumbnail")
 	if err != nil {
-		respondWithError(w, 400, err.Error(), err)
+		respondWithError(w, 400, "No thumbnail provided", err)
 	}
 	defer file.Close()
 
@@ -87,14 +87,14 @@ func (cfg *apiConfig) handlerUploadThumbnail(w http.ResponseWriter, r *http.Requ
 	b := make([]byte, 32)
 	_, err = rand.Read(b)
 	if err != nil {
-		respondWithError(w, http.StatusBadRequest, err.Error(), err)
+		respondWithError(w, http.StatusBadRequest, "Failed to create random string", err)
 		return
 	}
 
 	filepath := filepath.Join(cfg.assetsRoot, fmt.Sprintf("%v.%v", base64.RawURLEncoding.EncodeToString(b), extensionType))
 	thumbnailFile, err := os.Create(filepath)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error(), err)
+		respondWithError(w, http.StatusInternalServerError, "Couldn't create thumbnail file", err)
 		return
 	}
 	defer thumbnailFile.Close()
